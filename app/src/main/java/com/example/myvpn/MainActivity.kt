@@ -169,7 +169,7 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Image(
-                        painter = painterResource(id = com.example.myvpn.R.mipmap.ic_launcher),
+                        painter = painterResource(id = com.example.myvpn.R.drawable.ic_launcher_foreground),
                         contentDescription = "ON Tunnel logo",
                         modifier = Modifier.size(76.dp)
                     )
