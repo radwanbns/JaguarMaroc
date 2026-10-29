@@ -12,7 +12,6 @@ import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -69,6 +68,10 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
     var socksPort by mutableStateOf(prefs.getInt("socksPort", 1080))
     var keepAlive by mutableStateOf(prefs.getInt("keepAlive", 15))
 
+    // مشاركة الإنترنت (HTTP + SOCKS5 على منفذ واحد)
+    var shareEnabled by mutableStateOf(prefs.getBoolean("shareEnabled", false))
+    var sharePort by mutableStateOf(prefs.getInt("sharePort", 8080))
+
     val selectedIsWireGuard get() = servers.getOrNull(selected)?.type == "WG"
     val activeSsh get() = servers.getOrNull(selected)?.type == "SSH" && status == VpnStatus.CONNECTED
     val activeV2ray get() = servers.getOrNull(selected)?.type == "V2RAY" && status == VpnStatus.CONNECTED
@@ -85,7 +88,10 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
     var subAuto by mutableStateOf(prefs.getBoolean("subAuto", true))
     var subBusy by mutableStateOf(false)
     var subMessage by mutableStateOf<String?>(null)
-    var updateSuccess by mutableStateOf(false)
+    // يزداد عند نجاح التحديث ليُظهر لافتة Update Success
+    var updateSuccessTick by mutableStateOf(0)
+    // عدد السيرفرات الجديدة في آخر تحديث ناجح (للافتة)
+    var updateNewCount by mutableStateOf(0)
 
     init {
         loadServers()
@@ -111,28 +117,19 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val links = withContext(Dispatchers.IO) { fetchLinks(url) }
-                val currentSubscriptionServers = servers.filter { it.sub == url }
-                val sameServers = currentSubscriptionServers.size == links.size &&
-                    currentSubscriptionServers.toSet() == links.toSet()
-
-                if (sameServers) {
-                    // No list changes: don't rewrite storage or show a success banner.
-                    subMessage = null
-                    AppLog.add("الاشتراك: السيرفرات نفسها، لا حاجة للتحديث")
-                } else {
-                    val prev = servers.getOrNull(selected)
-                    servers.removeAll { it.sub == url }
-                    servers.addAll(links)
-                    selected = servers.indexOf(prev).takeIf { it >= 0 } ?: 0
-                    saveServers()
-                    subMessage = null
-                    updateSuccess = true
-                    viewModelScope.launch {
-                        delay(15_000)
-                        updateSuccess = false
-                    }
-                    AppLog.add("الاشتراك: Update Success — ${links.size} سيرفر")
+                val prev = servers.getOrNull(selected)
+                val old = servers.filter { it.sub == url }.toSet()
+                val newCount = links.count { it !in old }
+                servers.removeAll { it.sub == url }
+                servers.addAll(links)
+                selected = servers.indexOf(prev).takeIf { it >= 0 } ?: 0
+                saveServers()
+                subMessage = null
+                if (newCount > 0) { // اللافتة فقط عند وجود سيرفرات جديدة
+                    updateNewCount = newCount
+                    updateSuccessTick++
                 }
+                AppLog.add("الاشتراك: تمت إضافة ${links.size} سيرفر")
             } catch (e: Exception) {
                 subMessage = "فشل التحديث: ${e.message}"
                 AppLog.add("الاشتراك: فشل — ${e.message}")
@@ -176,6 +173,15 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
         socksPort = port.coerceIn(1024, 65535)
         keepAlive = keepAliveSec.coerceIn(5, 120)
         prefs.edit().putInt("socksPort", socksPort).putInt("keepAlive", keepAlive).apply()
+    }
+
+    fun saveShare(enabled: Boolean, port: Int) {
+        var p = port.coerceIn(1024, 65535)
+        while (p == socksPort || p == 10808) p++ // لا يتعارض مع منفذ SOCKS الداخلي
+        shareEnabled = enabled
+        sharePort = p
+        prefs.edit().putBoolean("shareEnabled", enabled).putInt("sharePort", p).apply()
+        ShareProxy.sync(getApplication<Application>())
     }
 
     fun connect() {
