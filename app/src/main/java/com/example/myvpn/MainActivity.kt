@@ -7,15 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,12 +21,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -41,7 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -52,7 +43,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wireguard.android.backend.GoBackend
-import kotlinx.coroutines.delay
 
 private val OnColors = darkColorScheme(
     primary = Color(0xFF22D3EE),
@@ -116,80 +106,98 @@ class MainActivity : ComponentActivity() {
 fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     var tab by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
-    var showUpdateBanner by remember { mutableStateOf(false) }
-    LaunchedEffect(vm.updateSuccessTick) {
-        if (vm.updateSuccessTick > 0) {
-            showUpdateBanner = true
-            delay(2000)
-            showUpdateBanner = false
-        }
-    }
+    // Show the Telegram dialog every time the app screen is entered.
+    var showTelegramDialog by remember { mutableStateOf(true) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)) {
-            Text(
-                buildAnnotatedString {
-                    withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append("ON") }
-                    withStyle(SpanStyle(color = Color.White)) { append(" Tunnel") }
-                },
-                fontSize = 28.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 1.sp,
-                modifier = Modifier.align(Alignment.Center)
-            )
-            IconButton(
-                onClick = { showSettings = true },
-                modifier = Modifier.align(Alignment.CenterEnd)
-            ) {
-                Icon(Icons.Default.Settings, "الإعدادات", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        TabRow(
-            selectedTabIndex = tab,
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.primary
-        ) {
-            Tab(tab == 0, { tab = 0 }, text = { Text("الرئيسية") })
-            Tab(tab == 1, { tab = 1 }, text = { Text("السجل") })
-        }
-        if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
-    }
-    AnimatedVisibility(
-        visible = showUpdateBanner,
-        enter = fadeIn() + slideInVertically { it },
-        exit = fadeOut() + slideOutVertically { it },
-        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-            .padding(start = 24.dp, end = 24.dp, bottom = 92.dp)
-    ) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = Color(0xFF0F1A33),
-            border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.55f)),
-            shadowElevation = 12.dp
-        ) {
-            Row(
-                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    Modifier.size(32.dp).background(Color(0xFF22C55E).copy(alpha = 0.18f), CircleShape),
-                    contentAlignment = Alignment.Center
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)) {
+                Text(
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append("ON") }
+                        withStyle(SpanStyle(color = Color.White)) { append(" Tunnel") }
+                    },
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.sp,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+                IconButton(
+                    onClick = { showSettings = true },
+                    modifier = Modifier.align(Alignment.CenterEnd)
                 ) {
-                    Icon(Icons.Default.Check, null, tint = Color(0xFF22C55E), modifier = Modifier.size(20.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("Update Success", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text(
-                        if (vm.updateNewCount == 1) "1 new server added" else "${vm.updateNewCount} new servers added",
-                        fontSize = 12.sp, color = Color(0xFF9FB0CC)
-                    )
+                    Icon(Icons.Default.Settings, "الإعدادات", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            TabRow(
+                selectedTabIndex = tab,
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.primary
+            ) {
+                Tab(tab == 0, { tab = 0 }, text = { Text("الرئيسية") })
+                Tab(tab == 1, { tab = 1 }, text = { Text("السجل") })
+            }
+            if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
         }
-    }
+
+        // Telegram invitation is a compact dialog; the old floating side panel is removed.
+        if (vm.updateSuccess) {
+            Surface(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 20.dp, vertical = 18.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = Color(0xFF16A34A),
+                shadowElevation = 8.dp
+            ) {
+                Text(
+                    "Update Success",
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
     }
     if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
+    if (showTelegramDialog) {
+        AlertDialog(
+            onDismissRequest = { showTelegramDialog = false },
+            title = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Image(
+                        painter = painterResource(id = com.example.myvpn.R.drawable.ic_launcher_foreground),
+                        contentDescription = "ON Tunnel logo",
+                        modifier = Modifier.size(76.dp)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        PromoSecrets.title,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = { Text(PromoSecrets.description) },
+            confirmButton = {
+                Button(onClick = {
+                    showTelegramDialog = false
+                    runCatching {
+                        context.startActivity(android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(PromoSecrets.telegramUrl)
+                        ))
+                    }
+                }) { Icon(Icons.Default.Send, contentDescription = null); Spacer(Modifier.width(6.dp)); Text(PromoSecrets.joinLabel) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTelegramDialog = false }) { Text(PromoSecrets.laterLabel) }
+            }
+        )
+    }
 }
 
 @Composable
@@ -268,16 +276,6 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             Text("V2Ray يعمل كـ VPN كامل: كل حركة الهاتف تمر عبر السيرفر.", fontSize = 13.sp)
         }
-        if (ShareProxy.active) {
-            Spacer(Modifier.height(8.dp))
-            val ips = remember(ShareProxy.active, vm.status) { ShareProxy.localIps() }
-            Text(
-                "المشاركة تعمل (HTTP / SOCKS5): " +
-                    (ips.firstOrNull() ?: "IP الهاتف") + ":" + ShareProxy.port,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
         vm.error?.let {
             Spacer(Modifier.height(8.dp))
             Text(it, color = MaterialTheme.colorScheme.error)
@@ -292,8 +290,7 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
             IconButton(onClick = { showAdd = true }) { Icon(Icons.Default.Add, "إضافة") }
         }
 
-        vm.subMessage?.let { Text(it, fontSize = 12.sp) }
-        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+        LazyColumn(Modifier.fillMaxWidth()) {
             itemsIndexed(vm.servers) { i, server ->
                 Card(
                     Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -324,49 +321,9 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
                 }
             }
         }
-        LinkButtons()
     }
 
     if (showAdd) AddServerDialog(onDismiss = { showAdd = false }, onSave = { vm.addServer(it); showAdd = false })
-}
-
-/** شريط أزرار الروابط (يوتيوب / تلغرام) أسفل الشاشة الرئيسية. الروابط في AppConfig. */
-@Composable
-fun LinkButtons() {
-    val uri = LocalUriHandler.current
-    fun open(url: String) { try { uri.openUri(url) } catch (_: Exception) {} }
-    val yt = AppConfig.YOUTUBE_URL
-    val tg = AppConfig.TELEGRAM_URL
-    if (yt.isBlank() && tg.isBlank()) return
-    Row(
-        Modifier.fillMaxWidth().padding(top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        if (yt.isNotBlank()) {
-            Button(
-                onClick = { open(yt) },
-                modifier = Modifier.weight(1f).height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE62117), contentColor = Color.White)
-            ) {
-                Text("YouTube", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Spacer(Modifier.width(8.dp))
-                Icon(Icons.Default.PlayArrow, null)
-            }
-        }
-        if (tg.isNotBlank()) {
-            Button(
-                onClick = { open(tg) },
-                modifier = Modifier.weight(1f).height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF229ED9), contentColor = Color.White)
-            ) {
-                Text("Telegram", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Spacer(Modifier.width(8.dp))
-                Icon(Icons.AutoMirrored.Filled.Send, null)
-            }
-        }
-    }
 }
 
 @Composable
@@ -375,8 +332,6 @@ fun SettingsDialog(vm: VpnViewModel, onDismiss: () -> Unit) {
     var ka by remember { mutableStateOf(vm.keepAlive.toString()) }
     var subUrl by remember { mutableStateOf(vm.subUrl) }
     var subAuto by remember { mutableStateOf(vm.subAuto) }
-    var shareOn by remember { mutableStateOf(vm.shareEnabled) }
-    var sharePort by remember { mutableStateOf(vm.sharePort.toString()) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("الإعدادات") },
@@ -411,33 +366,12 @@ fun SettingsDialog(vm: VpnViewModel, onDismiss: () -> Unit) {
                     onClick = { vm.saveSubscription(subUrl, subAuto); vm.updateSubscription() },
                     enabled = !vm.subBusy
                 ) { Text("حفظ وتحديث الآن") }
-                vm.subMessage?.let { Text(it, fontSize = 12.sp) }
-
-                Spacer(Modifier.height(16.dp))
-                Text("مشاركة الإنترنت (HTTP / SOCKS5)", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(shareOn, { shareOn = it })
-                    Spacer(Modifier.width(8.dp))
-                    Text("تفعيل المشاركة عند الاتصال", fontSize = 13.sp)
-                }
-                OutlinedTextField(
-                    sharePort, { sharePort = it.filter(Char::isDigit) },
-                    label = { Text("منفذ المشاركة (1024-65535)") }, singleLine = true
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "يعمل المنفذ كـ HTTP Proxy وكـ SOCKS5 معاً. على الجهاز الآخر (نفس الواي فاي أو هوتسبوت الهاتف) " +
-                        "اضبط البروكسي على IP الهاتف والمنفذ أعلاه. يعمل مع سيرفرات SSH وV2Ray، ويقبل أجهزة الشبكة المحلية فقط.",
-                    fontSize = 12.sp
-                )
-            }
+                    }
         },
         confirmButton = {
             TextButton(onClick = {
                 vm.saveSettings(port.toIntOrNull() ?: 1080, ka.toIntOrNull() ?: 15)
                 vm.saveSubscription(subUrl, subAuto)
-                vm.saveShare(shareOn, sharePort.toIntOrNull() ?: 8080)
                 onDismiss()
             }) { Text("حفظ") }
         },
