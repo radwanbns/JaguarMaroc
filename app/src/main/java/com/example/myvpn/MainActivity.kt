@@ -63,8 +63,17 @@ private val OnColors = darkColorScheme(
     error = Color(0xFFFF6B6B)
 )
 
-const val TELEGRAM_URL = "https://t.me/radouane_tech"
-const val YOUTUBE_URL = "https://youtube.com/@radouane_tech?si=JRuuxqLAcbQcHHNu"
+// روابط القنوات مشفرة (XOR + Base64) ولا تظهر كنص صريح داخل التطبيق
+private val LINK_KEY = intArrayOf(79, 78, 84, 45, 84, 117, 110, 110, 101, 108, 33, 50, 48, 50, 54)
+
+private fun decodeLink(s: String): String {
+    val b = android.util.Base64.decode(s, android.util.Base64.NO_WRAP)
+    val out = ByteArray(b.size) { i -> (b[i].toInt() xor LINK_KEY[i % LINK_KEY.size]).toByte() }
+    return String(out, Charsets.UTF_8)
+}
+
+val TELEGRAM_URL: String by lazy { decodeLink("JzogXSdPQUERQkxXH0BXKyEhTDoQMRoAD0k=") }
+val YOUTUBE_URL: String by lazy { decodeLink("JzogXSdPQUEcA1RGRVBTYS07QHs1HA8BA1RTXldpOys3RWsGB1MvPlRHSEN6Di02fDc9JiAQ") }
 
 const val WS_TEMPLATE =
     "GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]"
@@ -111,9 +120,7 @@ class MainActivity : ComponentActivity() {
 fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     var tab by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
-    val ctx = LocalContext.current
-    val uiPrefs = remember { ctx.getSharedPreferences("ui", 0) }
-    var showChannel by rememberSaveable { mutableStateOf(!uiPrefs.getBoolean("hideChannel", false)) }
+    var showChannel by rememberSaveable { mutableStateOf(true) }
     val uriHandler = LocalUriHandler.current
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)) {
@@ -179,26 +186,16 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
     if (showChannel) ChannelDialog(
         onOpen = { showChannel = false; uriHandler.openUri(TELEGRAM_URL) },
-        onLater = { showChannel = false },
-        onNever = {
-            uiPrefs.edit().putBoolean("hideChannel", true).apply()
-            showChannel = false
-        }
+        onLater = { showChannel = false }
     )
 }
 
 @Composable
-fun ChannelDialog(onOpen: () -> Unit, onLater: () -> Unit, onNever: () -> Unit) {
+fun ChannelDialog(onOpen: () -> Unit, onLater: () -> Unit) {
     AlertDialog(
         onDismissRequest = onLater,
         title = { Text("تابع قناتنا على تلغرام", fontWeight = FontWeight.Bold) },
-        text = {
-            Column {
-                Text("انضم إلى قناة radouane_tech لتصلك آخر السيرفرات والتحديثات والشروحات.")
-                Spacer(Modifier.height(4.dp))
-                TextButton(onClick = onNever) { Text("لا تظهر مرة أخرى", fontSize = 12.sp) }
-            }
-        },
+        text = { Text("انضم إلى قناة radouane_tech لتصلك آخر السيرفرات والتحديثات والشروحات.") },
         confirmButton = {
             Button(
                 onClick = onOpen,
