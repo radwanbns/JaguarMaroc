@@ -84,8 +84,6 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
     var subAuto by mutableStateOf(prefs.getBoolean("subAuto", true))
     var subBusy by mutableStateOf(false)
     var subMessage by mutableStateOf<String?>(null)
-    // يزداد عند نجاح التحديث ليُظهر لافتة Update Success
-    var updateSuccessTick by mutableStateOf(0)
 
     init {
         loadServers()
@@ -116,8 +114,7 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
                 servers.addAll(links)
                 selected = servers.indexOf(prev).takeIf { it >= 0 } ?: 0
                 saveServers()
-                subMessage = null
-                updateSuccessTick++
+                subMessage = "تم تحديث ${links.size} سيرفر ✔"
                 AppLog.add("الاشتراك: تمت إضافة ${links.size} سيرفر")
             } catch (e: Exception) {
                 subMessage = "فشل التحديث: ${e.message}"

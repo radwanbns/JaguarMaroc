@@ -144,7 +144,7 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
         // Side panel toggle remains visible on both Home and Log tabs.
         FilledIconButton(
             onClick = { showPromoPanel = !showPromoPanel },
-            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 6.dp).size(44.dp),
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 6.dp).size(44.dp),
             colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
@@ -159,9 +159,9 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
         if (showPromoPanel) {
             Card(
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 54.dp, top = 8.dp, bottom = 8.dp)
-                    .width(228.dp),
+                    .align(Alignment.TopEnd)
+                    .padding(top = 58.dp, end = 0.dp)
+                    .width(210.dp),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
