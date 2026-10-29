@@ -7,6 +7,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -20,21 +25,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wireguard.android.backend.GoBackend
+import kotlinx.coroutines.delay
 
 private val OnColors = darkColorScheme(
     primary = Color(0xFF22D3EE),
@@ -62,18 +64,6 @@ private val OnColors = darkColorScheme(
     outline = Color(0xFF2B3A63),
     error = Color(0xFFFF6B6B)
 )
-
-// روابط القنوات مشفرة (XOR + Base64) ولا تظهر كنص صريح داخل التطبيق
-private val LINK_KEY = intArrayOf(79, 78, 84, 45, 84, 117, 110, 110, 101, 108, 33, 50, 48, 50, 54)
-
-private fun decodeLink(s: String): String {
-    val b = android.util.Base64.decode(s, android.util.Base64.NO_WRAP)
-    val out = ByteArray(b.size) { i -> (b[i].toInt() xor LINK_KEY[i % LINK_KEY.size]).toByte() }
-    return String(out, Charsets.UTF_8)
-}
-
-val TELEGRAM_URL: String by lazy { decodeLink("JzogXSdPQUERQkxXH0BXKyEhTDoQMRoAD0k=") }
-val YOUTUBE_URL: String by lazy { decodeLink("JzogXSdPQUEcA1RGRVBTYS07QHs1HA8BA1RTXldpOys3RWsGB1MvPlRHSEN6Di02fDc9JiAQ") }
 
 const val WS_TEMPLATE =
     "GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]"
@@ -120,8 +110,15 @@ class MainActivity : ComponentActivity() {
 fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     var tab by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
-    var showChannel by rememberSaveable { mutableStateOf(true) }
-    val uriHandler = LocalUriHandler.current
+    var showUpdateBanner by remember { mutableStateOf(false) }
+    LaunchedEffect(vm.updateSuccessTick) {
+        if (vm.updateSuccessTick > 0) {
+            showUpdateBanner = true
+            delay(2000)
+            showUpdateBanner = false
+        }
+    }
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)) {
             Text(
@@ -149,63 +146,33 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
             Tab(tab == 0, { tab = 0 }, text = { Text("الرئيسية") })
             Tab(tab == 1, { tab = 1 }, text = { Text("السجل") })
         }
-        Box(Modifier.weight(1f)) {
-            if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
-        }
-        Row(
-            Modifier.fillMaxWidth().navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
+    }
+    AnimatedVisibility(
+        visible = showUpdateBanner,
+        enter = fadeIn() + slideInVertically { -it },
+        exit = fadeOut() + slideOutVertically { -it },
+        modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+            shadowElevation = 6.dp
         ) {
-            Button(
-                onClick = { uriHandler.openUri(TELEGRAM_URL) },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF229ED9), contentColor = Color.White
-                )
+            Row(
+                Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Send, null, Modifier.size(18.dp))
+                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF22C55E), modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Telegram", fontWeight = FontWeight.SemiBold)
-            }
-            Button(
-                onClick = { uriHandler.openUri(YOUTUBE_URL) },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFE62117), contentColor = Color.White
-                )
-            ) {
-                Icon(Icons.Default.PlayArrow, null, Modifier.size(22.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("YouTube", fontWeight = FontWeight.SemiBold)
+                Text("Update Success", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary)
             }
         }
     }
+    }
     if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
-    if (showChannel) ChannelDialog(
-        onOpen = { showChannel = false; uriHandler.openUri(TELEGRAM_URL) },
-        onLater = { showChannel = false }
-    )
-}
-
-@Composable
-fun ChannelDialog(onOpen: () -> Unit, onLater: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onLater,
-        title = { Text("تابع قناتنا على تلغرام", fontWeight = FontWeight.Bold) },
-        text = { Text("انضم إلى قناة radouane_tech لتصلك آخر السيرفرات والتحديثات والشروحات.") },
-        confirmButton = {
-            Button(
-                onClick = onOpen,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF229ED9), contentColor = Color.White
-                )
-            ) { Text("فتح القناة") }
-        },
-        dismissButton = { TextButton(onClick = onLater) { Text("لاحقاً") } }
-    )
 }
 
 @Composable
