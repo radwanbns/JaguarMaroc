@@ -128,7 +128,7 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
                     subMessage = null
                     updateSuccess = true
                     viewModelScope.launch {
-                        delay(1_400)
+                        delay(2_400)
                         updateSuccess = false
                     }
                     AppLog.add("الاشتراك: Update Success — ${links.size} سيرفر")
