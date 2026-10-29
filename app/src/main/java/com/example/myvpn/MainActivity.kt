@@ -20,9 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -107,8 +104,12 @@ class MainActivity : ComponentActivity() {
 fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     var tab by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
-    var showPromoPanel by remember { mutableStateOf(false) }
+    var showTelegramDialog by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val activityPrefs = remember { context.getSharedPreferences("promo_dialog_prefs", android.content.Context.MODE_PRIVATE) }
+    LaunchedEffect(Unit) {
+        if (!activityPrefs.getBoolean("telegram_dialog_seen", false)) showTelegramDialog = true
+    }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -141,72 +142,53 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
             if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
         }
 
-        // Side panel toggle remains visible on both Home and Log tabs.
-        FilledIconButton(
-            onClick = { showPromoPanel = !showPromoPanel },
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 6.dp).size(44.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            )
-        ) {
-            Icon(
-                if (showPromoPanel) Icons.Default.Close else Icons.Default.Menu,
-                contentDescription = if (showPromoPanel) "إخفاء روابط القنوات" else "إظهار روابط القنوات"
-            )
-        }
-
-        if (showPromoPanel) {
-            Card(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 58.dp, end = 0.dp)
-                    .width(210.dp),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
+        // Telegram invitation is a compact dialog; the old floating side panel is removed.
+        if (vm.updateSuccess) {
+            Surface(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 20.dp, vertical = 18.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = Color(0xFF16A34A),
+                shadowElevation = 8.dp
             ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(PromoSecrets.title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    Text(PromoSecrets.description, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(
-                        onClick = {
-                            context.startActivity(android.content.Intent(
-                                android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse(PromoSecrets.telegramUrl)
-                            ))
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Send, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text(PromoSecrets.telegramLabel)
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            context.startActivity(android.content.Intent(
-                                android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse(PromoSecrets.youtubeUrl)
-                            ))
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text(PromoSecrets.youtubeLabel)
-                    }
-                    TextButton(
-                        onClick = { showPromoPanel = false },
-                        modifier = Modifier.align(Alignment.End)
-                    ) { Text(PromoSecrets.hideLabel) }
-                }
+                Text(
+                    "Update Success",
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
+
     }
     if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
+    if (showTelegramDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showTelegramDialog = false
+                activityPrefs.edit().putBoolean("telegram_dialog_seen", true).apply()
+            },
+            title = { Text("RADOUANE TECH", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) },
+            text = { Text("انضم إلى قناة Telegram لمتابعة الأخبار والتحديثات.") },
+            confirmButton = {
+                Button(onClick = {
+                    activityPrefs.edit().putBoolean("telegram_dialog_seen", true).apply()
+                    showTelegramDialog = false
+                    runCatching {
+                        context.startActivity(android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://t.me/radouane_tech")
+                        ))
+                    }
+                }) { Icon(Icons.Default.Send, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("انضم إلى تلغرام") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    activityPrefs.edit().putBoolean("telegram_dialog_seen", true).apply()
+                    showTelegramDialog = false
+                }) { Text("لاحقاً") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -299,7 +281,6 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
             IconButton(onClick = { showAdd = true }) { Icon(Icons.Default.Add, "إضافة") }
         }
 
-        vm.subMessage?.let { Text(it, fontSize = 12.sp) }
         LazyColumn(Modifier.fillMaxWidth()) {
             itemsIndexed(vm.servers) { i, server ->
                 Card(
@@ -376,8 +357,7 @@ fun SettingsDialog(vm: VpnViewModel, onDismiss: () -> Unit) {
                     onClick = { vm.saveSubscription(subUrl, subAuto); vm.updateSubscription() },
                     enabled = !vm.subBusy
                 ) { Text("حفظ وتحديث الآن") }
-                vm.subMessage?.let { Text(it, fontSize = 12.sp) }
-            }
+                    }
         },
         confirmButton = {
             TextButton(onClick = {

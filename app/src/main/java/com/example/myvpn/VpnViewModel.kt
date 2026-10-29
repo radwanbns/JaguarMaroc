@@ -12,6 +12,7 @@ import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -84,6 +85,7 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
     var subAuto by mutableStateOf(prefs.getBoolean("subAuto", true))
     var subBusy by mutableStateOf(false)
     var subMessage by mutableStateOf<String?>(null)
+    var updateSuccess by mutableStateOf(false)
 
     init {
         loadServers()
@@ -109,13 +111,28 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val links = withContext(Dispatchers.IO) { fetchLinks(url) }
-                val prev = servers.getOrNull(selected)
-                servers.removeAll { it.sub == url }
-                servers.addAll(links)
-                selected = servers.indexOf(prev).takeIf { it >= 0 } ?: 0
-                saveServers()
-                subMessage = "تم تحديث ${links.size} سيرفر ✔"
-                AppLog.add("الاشتراك: تمت إضافة ${links.size} سيرفر")
+                val currentSubscriptionServers = servers.filter { it.sub == url }
+                val sameServers = currentSubscriptionServers.size == links.size &&
+                    currentSubscriptionServers.toSet() == links.toSet()
+
+                if (sameServers) {
+                    // No list changes: don't rewrite storage or show a success banner.
+                    subMessage = null
+                    AppLog.add("الاشتراك: السيرفرات نفسها، لا حاجة للتحديث")
+                } else {
+                    val prev = servers.getOrNull(selected)
+                    servers.removeAll { it.sub == url }
+                    servers.addAll(links)
+                    selected = servers.indexOf(prev).takeIf { it >= 0 } ?: 0
+                    saveServers()
+                    subMessage = null
+                    updateSuccess = true
+                    viewModelScope.launch {
+                        delay(15_000)
+                        updateSuccess = false
+                    }
+                    AppLog.add("الاشتراك: Update Success — ${links.size} سيرفر")
+                }
             } catch (e: Exception) {
                 subMessage = "فشل التحديث: ${e.message}"
                 AppLog.add("الاشتراك: فشل — ${e.message}")
