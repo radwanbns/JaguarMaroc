@@ -1,451 +1,369 @@
-package com.example.myvpn
+package com.ontunnel.app
 
-import android.Manifest
-import android.os.Build
+import android.app.Activity
+import android.app.AlertDialog
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.wireguard.android.backend.GoBackend
-import kotlinx.coroutines.delay
+import android.widget.*
+import android.graphics.Color
+import android.graphics.Typeface
+import android.view.Gravity
+import android.view.View
+import android.text.InputType
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
 
-private val OnColors = darkColorScheme(
-    primary = Color(0xFF22D3EE),
-    onPrimary = Color(0xFF00212B),
-    secondary = Color(0xFF8B5CF6),
-    background = Color(0xFF0A0F1F),
-    onBackground = Color(0xFFE6EDF7),
-    surface = Color(0xFF0F1730),
-    onSurface = Color(0xFFE6EDF7),
-    surfaceVariant = Color(0xFF16203D),
-    onSurfaceVariant = Color(0xFF9FB0CC),
-    surfaceContainer = Color(0xFF101830),
-    surfaceContainerHigh = Color(0xFF141D38),
-    surfaceContainerHighest = Color(0xFF1A2547),
-    outline = Color(0xFF2B3A63),
-    error = Color(0xFFFF6B6B)
-)
+/**
+ * ON TUNNEL starter: remote/manual config manager and UI.
+ * A working VPN engine is not included yet; see README.
+ */
+class MainActivity : Activity() {
+    private val navy = Color.rgb(7, 20, 38)
+    private val panel = Color.rgb(16, 43, 72)
+    private val cyan = Color.rgb(67, 204, 255)
+    private val white = Color.WHITE
+    private val executor = Executors.newSingleThreadExecutor()
+    private val prefs by lazy { getSharedPreferences("on_tunnel", MODE_PRIVATE) }
+    private val servers = mutableListOf<Server>()
+    private lateinit var serverSummary: TextView
+    private lateinit var status: TextView
+    private var selectedProtocol = "VLESS"
 
-const val WS_TEMPLATE =
-    "GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]"
-
-class MainActivity : ComponentActivity() {
-
-    private val vm: VpnViewModel by viewModels()
-
-    private val permissionLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) vm.connect() else vm.onPermissionDenied()
-        }
-
-    private val notifLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    data class Server(val name: String, val protocol: String, val address: String, val config: String, val source: String)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        window.statusBarColor = 0xFF0A0F1F.toInt()
-        window.navigationBarColor = 0xFF0A0F1F.toInt()
-        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-            .isAppearanceLightStatusBars = false
-        setContent {
-            MaterialTheme(colorScheme = OnColors) {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    VpnScreen(vm, onToggle = ::toggle)
+        loadSavedServers()
+        buildHome()
+        refreshRemoteServers()
+    }
+
+    private fun buildHome() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(18), dp(20), dp(18))
+            setBackgroundColor(navy)
+        }
+        setContentView(ScrollView(this).apply { addView(root) })
+
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        header.addView(label("ON TUNNEL", 26f, white).apply {
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(Button(this).apply {
+            text = "☰ Menu"; setTextColor(cyan); setBackgroundColor(panel)
+            setOnClickListener { showSideMenu() }
+        })
+        header.addView(Button(this).apply {
+            text = "⚙"; setTextColor(cyan); setBackgroundColor(panel)
+            contentDescription = "Settings"
+            setOnClickListener { showSettings() }
+        })
+        root.addView(header)
+        root.addView(label("SECURE VPN CONNECTION", 12f, cyan))
+        root.addView(View(this).apply { minimumHeight = dp(24) })
+
+        root.addView(Button(this).apply {
+            text = "⏻   CONNECT"; textSize = 20f; setTextColor(white)
+            setBackgroundColor(Color.rgb(18, 59, 98)); setPadding(dp(16), dp(22), dp(16), dp(22))
+            setOnClickListener {
+                AlertDialog.Builder(this@MainActivity).setTitle("VPN engine not integrated")
+                    .setMessage("This starter manages server configs, but a V2Ray/SSH engine and Android VpnService still need to be integrated and tested. A saved config alone does not establish a VPN connection.")
+                    .setPositiveButton("OK", null).show()
+            }
+        }, matchWrap())
+        status = label("●  Disconnected", 14f, Color.LTGRAY).apply { gravity = Gravity.CENTER }
+        root.addView(status, matchWrap())
+        root.addView(sectionTitle("Connection"))
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val protocols = listOf("VLESS", "VMess", "Trojan", "Shadowsocks", "SSH")
+        row.addView(Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, protocols)
+            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    selectedProtocol = protocols[position]
+                }
+            }
+        }, LinearLayout.LayoutParams(0, dp(52), 1f))
+        row.addView(Button(this).apply {
+            text = "+ Add"; setTextColor(white); setBackgroundColor(panel); setOnClickListener { showAddServer() }
+        })
+        root.addView(row)
+        serverSummary = label("No server selected", 14f, white).apply {
+            setPadding(dp(14), dp(14), dp(14), dp(14)); setBackgroundColor(panel)
+        }
+        root.addView(serverSummary, matchWrap())
+        root.addView(sectionTitle("Manage servers"))
+        root.addView(actionButton("Refresh remote servers") { refreshRemoteServers() })
+        root.addView(actionButton("View / select servers") { showServers() })
+        root.addView(actionButton("Import config from text") { importConfigText() })
+        root.addView(actionButton("App updates (GitHub Releases)") { showAppUpdates() })
+        root.addView(actionButton("Settings & diagnostics") { showSettings() })
+        root.addView(label("Remote source can be changed in Settings.", 12f, Color.LTGRAY))
+        updateSummary()
+    }
+
+    /** Quick side-menu actions for community links, sharing, and Android tethering settings. */
+    private fun showSideMenu() {
+        val items = arrayOf(
+            "✈ Telegram channel",
+            "▶ YouTube channel",
+            "↗ Share ON TUNNEL app",
+            "📶 Internet sharing / Hotspot",
+            "⚙ Settings"
+        )
+        AlertDialog.Builder(this)
+            .setTitle("ON TUNNEL • Quick menu")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> openCommunityLink("telegram_url", DEFAULT_TELEGRAM_URL, "Telegram")
+                    1 -> openCommunityLink("youtube_url", DEFAULT_YOUTUBE_URL, "YouTube")
+                    2 -> shareApp()
+                    3 -> openInternetSharingSettings()
+                    4 -> showSettings()
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun openCommunityLink(key: String, defaultUrl: String, service: String) {
+        val url = prefs.getString(key, defaultUrl) ?: defaultUrl
+        if (url.contains("YOUR_", ignoreCase = true)) {
+            AlertDialog.Builder(this).setTitle(service + " link")
+                .setMessage("Add your $service channel URL in the app settings/code before using this button.")
+                .setPositiveButton("OK", null).show()
+            return
+        }
+        try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        catch (_: Exception) { toast("Could not open $service") }
+    }
+
+    private fun shareApp() {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "ON TUNNEL")
+            putExtra(Intent.EXTRA_TEXT, "Try ON TUNNEL: ${prefs.getString("releases_url", DEFAULT_RELEASES_URL)}")
+        }
+        startActivity(Intent.createChooser(send, "Share ON TUNNEL"))
+    }
+
+    private fun openInternetSharingSettings() {
+        // Android controls hotspot/tethering. Opening its settings is supported more widely
+        // than trying to enable tethering silently, which ordinary apps cannot do reliably.
+        try {
+            startActivity(Intent("android.settings.TETHER_SETTINGS"))
+        } catch (_: Exception) {
+            try { startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }
+            catch (_: Exception) { toast("Open Android Settings > Hotspot & tethering") }
+        }
+        toast("Enable Hotspot in Android settings. VPN sharing depends on your phone and Android version.")
+    }
+
+    private fun showAddServer() {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), 0) }
+        val name = EditText(this).apply { hint = "Server name"; setTextColor(white); setHintTextColor(Color.LTGRAY) }
+        val config = EditText(this).apply {
+            hint = if (selectedProtocol == "SSH") "SSH host:port / details" else "Paste $selectedProtocol URI"
+            setTextColor(white); setHintTextColor(Color.LTGRAY); minLines = 3
+        }
+        box.addView(name); box.addView(config)
+        AlertDialog.Builder(this).setTitle("Add $selectedProtocol server").setView(box)
+            .setNegativeButton("Cancel", null).setPositiveButton("Save") { _, _ ->
+                val raw = config.text.toString().trim()
+                if (raw.isNotEmpty()) {
+                    servers.add(Server(name.text.toString().ifBlank { "$selectedProtocol ${servers.size + 1}" },
+                        selectedProtocol, extractAddress(raw), raw, "manual"))
+                    saveManualServers(); updateSummary(); toast("Server config saved")
+                } else toast("Enter a config first")
+            }.show()
+    }
+
+    private fun showServers() {
+        if (servers.isEmpty()) {
+            AlertDialog.Builder(this).setTitle("Servers").setMessage("No servers loaded. Refresh remote servers or add one manually.")
+                .setPositiveButton("Add server") { _, _ -> showAddServer() }.setNegativeButton("Close", null).show()
+            return
+        }
+        val items = servers.map { "${it.name} • ${it.protocol} • ${it.source}" }.toTypedArray()
+        AlertDialog.Builder(this).setTitle("Choose server").setItems(items) { _, index ->
+            prefs.edit().putString("selected_config", servers[index].config)
+                .putString("selected_name", servers[index].name).apply()
+            serverSummary.text = "${servers[index].name}\n${servers[index].protocol} • ${servers[index].address}"
+            toast("Selected ${servers[index].name}")
+        }.setNeutralButton("Clear manual servers") { _, _ ->
+            servers.removeAll { it.source == "manual" }; saveManualServers(); updateSummary()
+        }.setNegativeButton("Close", null).show()
+    }
+
+    private fun refreshRemoteServers() {
+        val endpoint = prefs.getString("servers_url", DEFAULT_SERVERS_URL) ?: DEFAULT_SERVERS_URL
+        status.text = "●  Loading remote servers…"
+        executor.execute {
+            try {
+                val body = downloadText(endpoint)
+                val parsed = parseRemote(body)
+                runOnUiThread {
+                    servers.removeAll { it.source == "remote" }
+                    servers.addAll(parsed)
+                    prefs.edit().putString("remote_cache", body).apply()
+                    status.text = "●  Remote list updated (${parsed.size})"
+                    updateSummary()
+                    toast("Remote entries loaded: ${parsed.size}")
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    status.text = "●  Remote update failed"
+                    toast("Remote update failed; using cached list if available")
+                    updateSummary()
                 }
             }
         }
     }
 
-    private fun toggle() {
-        if (vm.status == VpnStatus.CONNECTED) {
-            vm.disconnect()
-        } else {
-            val intent = android.net.VpnService.prepare(this)
-            if (intent != null) permissionLauncher.launch(intent) else vm.connect()
-        }
-    }
-}
-
-@Composable
-fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
-    var tab by remember { mutableStateOf(0) }
-    var showSettings by remember { mutableStateOf(false) }
-    var showUpdateBanner by remember { mutableStateOf(false) }
-    LaunchedEffect(vm.updateSuccessTick) {
-        if (vm.updateSuccessTick > 0) {
-            showUpdateBanner = true
-            delay(2000)
-            showUpdateBanner = false
-        }
-    }
-    Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)) {
-            Text(
-                buildAnnotatedString {
-                    withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append("ON") }
-                    withStyle(SpanStyle(color = Color.White)) { append(" Tunnel") }
-                },
-                fontSize = 28.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 1.sp,
-                modifier = Modifier.align(Alignment.Center)
-            )
-            IconButton(
-                onClick = { showSettings = true },
-                modifier = Modifier.align(Alignment.CenterEnd)
-            ) {
-                Icon(Icons.Default.Settings, "الإعدادات", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    private fun parseRemote(body: String): List<Server> = body.lines()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !it.startsWith("#") }
+        .mapIndexedNotNull { index, line ->
+            val protocol = when {
+                line.startsWith("vless://", true) -> "VLESS"
+                line.startsWith("vmess://", true) -> "VMess"
+                line.startsWith("trojan://", true) -> "Trojan"
+                line.startsWith("ss://", true) -> "Shadowsocks"
+                line.startsWith("ssh://", true) -> "SSH"
+                else -> return@mapIndexedNotNull null
             }
+            Server(uriName(line, "$protocol ${index + 1}"), protocol, extractAddress(line), line, "remote")
         }
-        TabRow(
-            selectedTabIndex = tab,
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.primary
-        ) {
-            Tab(tab == 0, { tab = 0 }, text = { Text("الرئيسية") })
-            Tab(tab == 1, { tab = 1 }, text = { Text("السجل") })
+
+    private fun importConfigText() {
+        val input = EditText(this).apply {
+            hint = "Paste one URI per line"; setTextColor(white); setHintTextColor(Color.LTGRAY); minLines = 4
         }
-        if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
+        AlertDialog.Builder(this).setTitle("Import configs").setView(input).setNegativeButton("Cancel", null)
+            .setPositiveButton("Import") { _, _ ->
+                val imported = parseRemote(input.text.toString()).map { it.copy(source = "manual") }
+                if (imported.isNotEmpty()) {
+                    servers.addAll(imported); saveManualServers(); updateSummary(); toast("Imported ${imported.size} configs")
+                } else toast("No supported URI found")
+            }.show()
     }
-    AnimatedVisibility(
-        visible = showUpdateBanner,
-        enter = fadeIn() + slideInVertically { -it },
-        exit = fadeOut() + slideOutVertically { -it },
-        modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp)
-    ) {
-        Surface(
-            shape = RoundedCornerShape(50),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-            shadowElevation = 6.dp
-        ) {
-            Row(
-                Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF22C55E), modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Update Success", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary)
+
+    private fun showSettings() {
+        val urlField = EditText(this).apply {
+            setText(prefs.getString("servers_url", DEFAULT_SERVERS_URL))
+            setTextColor(white); setHintTextColor(Color.LTGRAY); hint = "HTTPS servers.txt URL"
+            inputType = InputType.TYPE_TEXT_VARIATION_URI
+        }
+        val releasesField = EditText(this).apply {
+            setText(prefs.getString("releases_url", DEFAULT_RELEASES_URL))
+            setTextColor(white); setHintTextColor(Color.LTGRAY); hint = "GitHub Releases URL"
+            inputType = InputType.TYPE_TEXT_VARIATION_URI
+        }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), 0) }
+        box.addView(label("Remote server list URL", 13f, cyan)); box.addView(urlField)
+        box.addView(label("App releases URL", 13f, cyan)); box.addView(releasesField)
+        AlertDialog.Builder(this).setTitle("ON TUNNEL Settings").setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                prefs.edit().putString("servers_url", urlField.text.toString().trim())
+                    .putString("releases_url", releasesField.text.toString().trim()).apply()
+                toast("Settings saved")
+            }.setNeutralButton("Open Releases") { _, _ ->
+                openUrl(releasesField.text.toString().trim())
+            }.setNegativeButton("Close", null).show()
+    }
+
+    private fun showAppUpdates() {
+        val url = prefs.getString("releases_url", DEFAULT_RELEASES_URL) ?: DEFAULT_RELEASES_URL
+        AlertDialog.Builder(this).setTitle("App updates")
+            .setMessage("Current version: 1.0.0\n\nOpen GitHub Releases to check and download a newer APK. Android requires user approval to install an APK. This starter does not silently install updates.")
+            .setPositiveButton("Open GitHub Releases") { _, _ -> openUrl(url) }
+            .setNegativeButton("Close", null).show()
+    }
+
+    private fun loadSavedServers() {
+        try {
+            val arr = JSONArray(prefs.getString("manual_servers", "[]"))
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                servers.add(Server(o.optString("name"), o.optString("protocol"), o.optString("address"), o.optString("config"), "manual"))
             }
-        }
-    }
-    }
-    if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
-}
-
-@Composable
-fun LogScreen() {
-    val clipboard = LocalClipboardManager.current
-    val state = rememberLazyListState()
-    LaunchedEffect(AppLog.lines.size) {
-        if (AppLog.lines.isNotEmpty()) state.scrollToItem(AppLog.lines.size - 1)
-    }
-    Column(Modifier.fillMaxSize().padding(12.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {
-                clipboard.setText(AnnotatedString(AppLog.lines.joinToString("\n")))
-            }) { Text("نسخ") }
-            OutlinedButton(onClick = { AppLog.clear() }) { Text("مسح") }
-        }
-        Spacer(Modifier.height(8.dp))
-        if (AppLog.lines.isEmpty()) Text("لا توجد سجلات بعد", fontSize = 13.sp)
-        LazyColumn(state = state, modifier = Modifier.fillMaxSize()) {
-            items(AppLog.lines) {
-                Text(it, fontFamily = FontFamily.Monospace, fontSize = 12.sp,
-                    modifier = Modifier.padding(vertical = 2.dp))
-            }
-        }
-    }
-}
-
-@Composable
-fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
-    var showAdd by remember { mutableStateOf(false) }
-
-    val color = when (vm.status) {
-        VpnStatus.CONNECTED -> Color(0xFF22C55E)
-        VpnStatus.CONNECTING -> Color(0xFFFBBF24)
-        VpnStatus.DISCONNECTED -> Color(0xFF475569)
-    }
-    val label = when (vm.status) {
-        VpnStatus.CONNECTED -> "متصل"
-        VpnStatus.CONNECTING -> "جارٍ الاتصال..."
-        VpnStatus.DISCONNECTED -> "غير متصل"
+        } catch (_: Exception) {}
+        prefs.getString("remote_cache", null)?.let { servers.addAll(parseRemote(it)) }
     }
 
-    Column(
-        Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(Modifier.height(12.dp))
-
-        Box(
-            Modifier.size(176.dp).border(3.dp, color.copy(alpha = 0.35f), CircleShape).padding(10.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Button(
-                onClick = onToggle,
-                enabled = vm.status != VpnStatus.CONNECTING,
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = color,
-                    disabledContainerColor = color
-                ),
-                modifier = Modifier.fillMaxSize()
-            ) { Icon(Icons.Default.PowerSettingsNew, null, Modifier.size(64.dp), tint = Color.White) }
+    private fun saveManualServers() {
+        val arr = JSONArray()
+        servers.filter { it.source == "manual" }.forEach { s ->
+            arr.put(JSONObject().put("name", s.name).put("protocol", s.protocol).put("address", s.address).put("config", s.config))
         }
-
-        Spacer(Modifier.height(12.dp))
-        Text(label, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = color)
-
-        if (vm.activeSsh) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "SSH يعمل كـ VPN كامل: كل حركة الهاتف تمر عبر السيرفر.",
-                fontSize = 13.sp
-            )
-        }
-        if (vm.activeV2ray) {
-            Spacer(Modifier.height(8.dp))
-            Text("V2Ray يعمل كـ VPN كامل: كل حركة الهاتف تمر عبر السيرفر.", fontSize = 13.sp)
-        }
-        vm.error?.let {
-            Spacer(Modifier.height(8.dp))
-            Text(it, color = MaterialTheme.colorScheme.error)
-        }
-
-        Spacer(Modifier.height(24.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("السيرفرات", fontSize = 18.sp, modifier = Modifier.weight(1f))
-            IconButton(onClick = { vm.updateSubscription() }, enabled = !vm.subBusy) {
-                Icon(Icons.Default.Refresh, "تحديث السيرفرات")
-            }
-            IconButton(onClick = { showAdd = true }) { Icon(Icons.Default.Add, "إضافة") }
-        }
-
-        vm.subMessage?.let { Text(it, fontSize = 12.sp) }
-        LazyColumn(Modifier.fillMaxWidth()) {
-            itemsIndexed(vm.servers) { i, server ->
-                Card(
-                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    border = if (vm.selected == i) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null
-                ) {
-                    Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(
-                            selected = vm.selected == i,
-                            onClick = { if (vm.status == VpnStatus.DISCONNECTED) vm.selected = i }
-                        )
-                        Column(Modifier.weight(1f)) {
-                            Text(server.name)
-                            val sub = when (server.type) {
-                                "WG" -> "WireGuard"
-                                "V2RAY" -> "V2Ray • ${server.config.substringBefore("://").uppercase()}"
-                                else -> "SSH • ${server.host}" +
-                                    (if (server.payload.isNotBlank()) " • Payload" else "") +
-                                    (if (server.tls) " • TLS" else "")
-                            }
-                            Text(sub, fontSize = 12.sp)
-                        }
-                        IconButton(onClick = { vm.removeServer(i) }) {
-                            Icon(Icons.Default.Delete, "حذف")
-                        }
-                    }
-                }
-            }
-        }
+        prefs.edit().putString("manual_servers", arr.toString()).apply()
     }
 
-    if (showAdd) AddServerDialog(onDismiss = { showAdd = false }, onSave = { vm.addServer(it); showAdd = false })
-}
+    private fun updateSummary() {
+        if (!::serverSummary.isInitialized) return
+        val name = prefs.getString("selected_name", null)
+        val config = prefs.getString("selected_config", null)
+        serverSummary.text = if (name != null && config != null) "$name\n${extractAddress(config)}" else
+            "${servers.size} server entries available\nChoose a server to view details"
+    }
 
-@Composable
-fun SettingsDialog(vm: VpnViewModel, onDismiss: () -> Unit) {
-    var port by remember { mutableStateOf(vm.socksPort.toString()) }
-    var ka by remember { mutableStateOf(vm.keepAlive.toString()) }
-    var subUrl by remember { mutableStateOf(vm.subUrl) }
-    var subAuto by remember { mutableStateOf(vm.subAuto) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("الإعدادات") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                OutlinedTextField(
-                    port, { port = it.filter(Char::isDigit) },
-                    label = { Text("منفذ SOCKS5 المحلي (1024-65535)") }, singleLine = true
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    ka, { ka = it.filter(Char::isDigit) },
-                    label = { Text("فاصل Keep-Alive بالثواني (5-120)") }, singleLine = true
-                )
-                Spacer(Modifier.height(16.dp))
-                Text("اشتراك السيرفرات (رابط GitHub)", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                if (AppConfig.LOCK_SUB && AppConfig.SUB_URL.isNotBlank()) {
-                    Text("رابط الاشتراك مدمج في التطبيق.", fontSize = 12.sp)
-                } else {
-                    OutlinedTextField(
-                        subUrl, { subUrl = it.trim() },
-                        label = { Text("رابط الملف (raw) الذي يبدأ بـ https://") }, singleLine = true
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(subAuto, { subAuto = it })
-                    Spacer(Modifier.width(8.dp))
-                    Text("تحديث تلقائي عند فتح التطبيق", fontSize = 13.sp)
-                }
-                TextButton(
-                    onClick = { vm.saveSubscription(subUrl, subAuto); vm.updateSubscription() },
-                    enabled = !vm.subBusy
-                ) { Text("حفظ وتحديث الآن") }
-                vm.subMessage?.let { Text(it, fontSize = 12.sp) }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                vm.saveSettings(port.toIntOrNull() ?: 1080, ka.toIntOrNull() ?: 15)
-                vm.saveSubscription(subUrl, subAuto)
-                onDismiss()
-            }) { Text("حفظ") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } }
-    )
-}
+    private fun extractAddress(config: String): String = try {
+        val uri = Uri.parse(config)
+        val host = uri.host ?: return config.take(90)
+        if (uri.port > 0) "$host:${uri.port}" else host
+    } catch (_: Exception) { config.take(90) }
 
-@Composable
-fun AddServerDialog(onDismiss: () -> Unit, onSave: (Server) -> Unit) {
-    var type by remember { mutableStateOf("WG") }
-    var name by remember { mutableStateOf("") }
-    var cfg by remember { mutableStateOf("") }
-    var host by remember { mutableStateOf("") }
-    var port by remember { mutableStateOf("22") }
-    var user by remember { mutableStateOf("") }
-    var pass by remember { mutableStateOf("") }
-    var advanced by remember { mutableStateOf(false) }
-    var cHost by remember { mutableStateOf("") }
-    var cPort by remember { mutableStateOf("") }
-    var tls by remember { mutableStateOf(false) }
-    var sni by remember { mutableStateOf("") }
-    var payload by remember { mutableStateOf("") }
+    private fun uriName(config: String, fallback: String): String = try {
+        Uri.decode(Uri.parse(config).fragment).takeIf { !it.isNullOrBlank() } ?: fallback
+    } catch (_: Exception) { fallback }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("إضافة سيرفر") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(type == "WG", { type = "WG" }, label = { Text("WireGuard") })
-                    FilterChip(type == "SSH", { type = "SSH" }, label = { Text("SSH") })
-                    FilterChip(type == "V2RAY", { type = "V2RAY" }, label = { Text("V2Ray") })
-                }
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(name, { name = it }, label = { Text("الاسم") }, singleLine = true)
-                Spacer(Modifier.height(8.dp))
-                if (type == "WG") {
-                    OutlinedTextField(
-                        cfg, { cfg = it },
-                        label = { Text("إعداد WireGuard (.conf)") },
-                        modifier = Modifier.height(200.dp)
-                    )
-                } else if (type == "V2RAY") {
-                    OutlinedTextField(
-                        cfg, { cfg = it.trim() },
-                        label = { Text("رابط VLESS / VMess / Trojan") },
-                        placeholder = { Text("vless://… أو vmess://… أو trojan://…") },
-                        modifier = Modifier.height(150.dp)
-                    )
-                    Text("يدعم روابط السيرفرات الفردية، ويعمل كـ VPN كامل لكل الهاتف.", fontSize = 12.sp)
-                } else {
-                    OutlinedTextField(host, { host = it }, label = { Text("عنوان سيرفر SSH") }, singleLine = true)
-                    OutlinedTextField(port, { port = it.filter(Char::isDigit) }, label = { Text("منفذ SSH") }, singleLine = true)
-                    OutlinedTextField(user, { user = it }, label = { Text("اسم المستخدم") }, singleLine = true)
-                    OutlinedTextField(
-                        pass, { pass = it }, label = { Text("كلمة المرور") }, singleLine = true,
-                        visualTransformation = PasswordVisualTransformation()
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Switch(advanced, { advanced = it })
-                        Spacer(Modifier.width(8.dp))
-                        Text("WebSocket / Payload")
-                    }
-                    if (advanced) {
-                        OutlinedTextField(cHost, { cHost = it }, label = { Text("عنوان الوسيط/CDN (اختياري)") }, singleLine = true)
-                        OutlinedTextField(cPort, { cPort = it.filter(Char::isDigit) }, label = { Text("منفذ الوسيط (80 أو 443)") }, singleLine = true)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Switch(tls, { tls = it })
-                            Spacer(Modifier.width(8.dp))
-                            Text("TLS")
-                        }
-                        if (tls) OutlinedTextField(sni, { sni = it }, label = { Text("SNI") }, singleLine = true)
-                        OutlinedTextField(
-                            payload, { payload = it },
-                            label = { Text("Payload") },
-                            modifier = Modifier.height(130.dp)
-                        )
-                        TextButton(onClick = { payload = WS_TEMPLATE }) { Text("قالب WebSocket") }
-                        Text("المتغيرات: [host] [port] [crlf] [cr] [lf]", fontSize = 11.sp)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                onSave(Server(
-                    name = name, type = type, config = cfg,
-                    host = host.trim(), port = port.toIntOrNull() ?: 22,
-                    user = user.trim(), password = pass,
-                    connectHost = if (advanced) cHost.trim() else "",
-                    connectPort = if (advanced) cPort.toIntOrNull() ?: 0 else 0,
-                    tls = advanced && tls,
-                    sni = if (advanced) sni.trim() else "",
-                    payload = if (advanced) payload else ""
-                ))
-            }) { Text("حفظ") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } }
-    )
+    private fun downloadText(endpoint: String): String {
+        require(endpoint.startsWith("https://")) { "HTTPS required" }
+        val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 10000; readTimeout = 10000
+            setRequestProperty("User-Agent", "ON-TUNNEL-Android")
+        }
+        try {
+            if (conn.responseCode !in 200..299) error("HTTP ${conn.responseCode}")
+            return conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } finally { conn.disconnect() }
+    }
+
+    private fun openUrl(url: String) {
+        if (!url.startsWith("https://")) { toast("Enter a valid HTTPS URL"); return }
+        try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        catch (_: Exception) { toast("No browser available") }
+    }
+
+    private fun actionButton(text: String, action: () -> Unit) = Button(this).apply {
+        this.text = text; setTextColor(white); setBackgroundColor(panel)
+        setOnClickListener { action() }
+        layoutParams = LinearLayout.LayoutParams(-1, dp(50)).apply { bottomMargin = dp(8) }
+    }
+
+    private fun sectionTitle(text: String) = label(text, 17f, white).apply {
+        typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(18), 0, dp(8))
+    }
+    private fun label(text: String, size: Float, color: Int) = TextView(this).apply {
+        this.text = text; textSize = size; setTextColor(color)
+    }
+    private fun matchWrap() = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+
+    override fun onDestroy() { executor.shutdown(); super.onDestroy() }
+
+    companion object {
+        const val DEFAULT_SERVERS_URL = "https://raw.githubusercontent.com/radwanbns/Redo-VPN/refs/heads/main/main/servers.txt"
+        const val DEFAULT_RELEASES_URL = "https://github.com/radwanbns/ON-TUNNEL/releases"
+        // Replace these placeholders with the real community links before publishing.
+        const val DEFAULT_TELEGRAM_URL = "https://t.me/radouane_tech"
+        const val DEFAULT_YOUTUBE_URL = "https://youtube.com/@radouane_tech"
+    }
 }
