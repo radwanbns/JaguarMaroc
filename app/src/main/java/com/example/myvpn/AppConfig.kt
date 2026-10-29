@@ -33,5 +33,5 @@ object AppConfig {
     const val INTERSTITIAL_EVERY_N_DISCONNECTS = 2
 
     /** مكافأة مشاهدة الإعلان: عدد دقائق بدون أي إعلانات. */
-    const val REWARD_AD_FREE_MINUTES = 30
+    const val REWARD_AD_FREE_MINUTES = 2
 }
