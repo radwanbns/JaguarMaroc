@@ -9,7 +9,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="Redo VPN"
+        android:label="ON Tunnel"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
