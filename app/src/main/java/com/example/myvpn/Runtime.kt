@@ -64,6 +64,7 @@ object SshManager {
                 tunnel.start(server, socksPort, keepAlive)
                 status = VpnStatus.CONNECTED
                 AppLog.add("تم الاتصال ✔")
+                RedoVpnService.start(app, socksPort)
                 ContextCompat.startForegroundService(
                     app, Intent(app, TunnelService::class.java).putExtra("name", server.name)
                 )
@@ -76,6 +77,7 @@ object SshManager {
                             tunnel.stop()
                             status = VpnStatus.DISCONNECTED
                             error = "انقطع الاتصال"
+                            RedoVpnService.stop(app)
                             app.stopService(Intent(app, TunnelService::class.java))
                             break
                         }
@@ -98,7 +100,15 @@ object SshManager {
             status = VpnStatus.DISCONNECTED
             AppLog.add("تم قطع الاتصال")
         }
+        RedoVpnService.stop(app)
         app.stopService(Intent(app, TunnelService::class.java))
+    }
+
+    fun onVpnFailed(ctx: Context, msg: String) {
+        if (status == VpnStatus.DISCONNECTED) return
+        error = msg
+        AppLog.add("VPN: $msg")
+        disconnect(ctx)
     }
 }
 
@@ -109,7 +119,10 @@ class TunnelService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "STOP") {
-            SshManager.disconnect(this)
+            if (SshManager.status != VpnStatus.DISCONNECTED) SshManager.disconnect(this)
+            if (V2rayManager.status != VpnStatus.DISCONNECTED) {
+                Thread { V2rayManager.disconnect() }.start()
+            }
             stopSelf()
             return START_NOT_STICKY
         }

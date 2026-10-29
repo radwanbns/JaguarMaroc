@@ -12,8 +12,13 @@ import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
 
 data class Server(
     val name: String,
@@ -27,7 +32,8 @@ data class Server(
     val connectPort: Int = 0,       // 0 = تلقائي (80 أو 443)
     val tls: Boolean = false,
     val sni: String = "",
-    val payload: String = ""
+    val payload: String = "",
+    val sub: String = ""            // رابط الاشتراك الذي جاء منه السيرفر (فارغ = يدوي)
 )
 
 enum class VpnStatus { DISCONNECTED, CONNECTING, CONNECTED }
@@ -66,7 +72,88 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
     val activeSsh get() = servers.getOrNull(selected)?.type == "SSH" && status == VpnStatus.CONNECTED
     val activeV2ray get() = servers.getOrNull(selected)?.type == "V2RAY" && status == VpnStatus.CONNECTED
 
-    init { loadServers() }
+    // الاشتراك
+    private fun initialSubUrl(): String {
+        val saved = prefs.getString("subUrl", "") ?: ""
+        return if (AppConfig.SUB_URL.isNotBlank() && (AppConfig.LOCK_SUB || saved.isBlank())) {
+            AppConfig.SUB_URL
+        } else saved
+    }
+
+    var subUrl by mutableStateOf(initialSubUrl())
+    var subAuto by mutableStateOf(prefs.getBoolean("subAuto", true))
+    var subBusy by mutableStateOf(false)
+    var subMessage by mutableStateOf<String?>(null)
+
+    init {
+        loadServers()
+        if (subAuto && subUrl.isNotBlank()) updateSubscription()
+    }
+
+    fun saveSubscription(url: String, auto: Boolean) {
+        val locked = AppConfig.LOCK_SUB && AppConfig.SUB_URL.isNotBlank()
+        subUrl = if (locked) AppConfig.SUB_URL else url.trim()
+        subAuto = auto
+        prefs.edit().putString("subUrl", subUrl).putBoolean("subAuto", subAuto).apply()
+    }
+
+    fun updateSubscription() {
+        val url = subUrl.trim()
+        if (url.isBlank()) { subMessage = "أدخل رابط الاشتراك أولاً"; return }
+        if (!url.startsWith("https://", true)) { subMessage = "الرابط يجب أن يبدأ بـ https://"; return }
+        if (status != VpnStatus.DISCONNECTED) { subMessage = "اقطع الاتصال قبل تحديث السيرفرات"; return }
+        if (subBusy) return
+        subBusy = true
+        subMessage = "جارٍ التحديث..."
+        AppLog.add("الاشتراك: جارٍ التحديث")
+        viewModelScope.launch {
+            try {
+                val links = withContext(Dispatchers.IO) { fetchLinks(url) }
+                val prev = servers.getOrNull(selected)
+                servers.removeAll { it.sub == url }
+                servers.addAll(links)
+                selected = servers.indexOf(prev).takeIf { it >= 0 } ?: 0
+                saveServers()
+                subMessage = "تم تحديث ${links.size} سيرفر ✔"
+                AppLog.add("الاشتراك: تمت إضافة ${links.size} سيرفر")
+            } catch (e: Exception) {
+                subMessage = "فشل التحديث: ${e.message}"
+                AppLog.add("الاشتراك: فشل — ${e.message}")
+            } finally {
+                subBusy = false
+            }
+        }
+    }
+
+    private fun fetchLinks(url: String): List<Server> {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 15000
+            readTimeout = 20000
+            requestMethod = "GET"
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "RedoVPN/1.0")
+        }
+        try {
+            if (conn.responseCode !in 200..299) throw IOException("رد الخادم: ${conn.responseCode}")
+            val out = ByteArrayOutputStream()
+            conn.inputStream.use { s ->
+                val buf = ByteArray(8192)
+                var total = 0
+                while (true) {
+                    val n = s.read(buf)
+                    if (n < 0) break
+                    total += n
+                    if (total > 2_000_000) throw IOException("الملف كبير جداً")
+                    out.write(buf, 0, n)
+                }
+            }
+            val list = SubParser.parse(String(out.toByteArray(), Charsets.UTF_8), url)
+            if (list.isEmpty()) throw IOException("لا توجد سيرفرات صالحة في الملف")
+            return list
+        } finally {
+            conn.disconnect()
+        }
+    }
 
     fun saveSettings(port: Int, keepAliveSec: Int) {
         socksPort = port.coerceIn(1024, 65535)
@@ -83,7 +170,7 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         if (server.type == "V2RAY") {
-            V2rayManager.connect(getApplication<Application>(), server.config)
+            V2rayManager.connect(getApplication<Application>(), server.config, server.name)
             return
         }
         wgStatus = VpnStatus.CONNECTING
@@ -104,7 +191,9 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnect() {
         if (SshManager.status != VpnStatus.DISCONNECTED) SshManager.disconnect(getApplication<Application>())
-        if (V2rayManager.status != VpnStatus.DISCONNECTED) V2rayManager.disconnect()
+        if (V2rayManager.status != VpnStatus.DISCONNECTED) {
+            viewModelScope.launch(Dispatchers.IO) { V2rayManager.disconnect() }
+        }
         if (wgStatus != VpnStatus.DISCONNECTED) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
@@ -158,7 +247,8 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
                 .put("host", it.host).put("port", it.port)
                 .put("user", it.user).put("password", it.password)
                 .put("connectHost", it.connectHost).put("connectPort", it.connectPort)
-                .put("tls", it.tls).put("sni", it.sni).put("payload", it.payload))
+                .put("tls", it.tls).put("sni", it.sni).put("payload", it.payload)
+                .put("sub", it.sub))
         }
         prefs.edit().putString("list", arr.toString()).apply()
     }
@@ -173,7 +263,8 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
                 o.optString("host"), o.optInt("port", 22),
                 o.optString("user"), o.optString("password"),
                 o.optString("connectHost"), o.optInt("connectPort", 0),
-                o.optBoolean("tls", false), o.optString("sni"), o.optString("payload")
+                o.optBoolean("tls", false), o.optString("sni"), o.optString("payload"),
+                o.optString("sub")
             ))
         }
     }

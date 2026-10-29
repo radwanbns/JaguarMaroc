@@ -4,6 +4,10 @@ import com.jcraft.jsch.ChannelDirectTCPIP
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
 import java.io.DataInputStream
+import java.io.OutputStream
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetSocketAddress
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -75,9 +79,10 @@ class SshSocksTunnel {
                 else -> null
             }
             val port = (input.read() shl 8) or input.read()
-            if (cmd != 1 || host == null) {
+            if (host == null || (cmd != 1 && cmd != 3)) {
                 output.write(byteArrayOf(5, 7, 0, 1, 0, 0, 0, 0, 0, 0)); return
             }
+            if (cmd == 3) { udpAssociate(input, output); return }
             AppLog.add("→ $host:$port")
 
             val ch = session!!.openChannel("direct-tcpip") as ChannelDirectTCPIP
@@ -98,6 +103,69 @@ class SshSocksTunnel {
         } catch (_: Exception) {
         } finally {
             try { client.close() } catch (_: Exception) {}
+        }
+    }
+
+    /** SOCKS5 UDP ASSOCIATE: يدعم استعلامات DNS فقط (تُرسل عبر SSH بصيغة TCP). */
+    private fun udpAssociate(input: DataInputStream, output: OutputStream) {
+        val udp = DatagramSocket(0, InetAddress.getByName("127.0.0.1"))
+        try {
+            val p = udp.localPort
+            output.write(byteArrayOf(5, 0, 0, 1, 127, 0, 0, 1, (p shr 8).toByte(), (p and 0xFF).toByte()))
+            output.flush()
+            thread(isDaemon = true) { udpLoop(udp) }
+            while (running && input.read() >= 0) { /* اتصال التحكم مفتوح */ }
+        } finally {
+            udp.close()
+        }
+    }
+
+    private fun udpLoop(udp: DatagramSocket) {
+        val buf = ByteArray(65535)
+        while (running && !udp.isClosed) {
+            val pkt = DatagramPacket(buf, buf.size)
+            try { udp.receive(pkt) } catch (e: Exception) { break }
+            val from = InetSocketAddress(pkt.address, pkt.port)
+            val data = buf.copyOfRange(pkt.offset, pkt.offset + pkt.length)
+            if (data.size < 10 || data[2].toInt() != 0) continue
+            var i = 3
+            val atyp = data[i++].toInt()
+            val dstHost: String = when (atyp) {
+                1 -> { val a = data.copyOfRange(i, i + 4); i += 4; InetAddress.getByAddress(a).hostAddress ?: continue }
+                3 -> { val l = data[i++].toInt() and 0xFF; val s = String(data, i, l, Charsets.UTF_8); i += l; s }
+                4 -> { val a = data.copyOfRange(i, i + 16); i += 16; InetAddress.getByAddress(a).hostAddress ?: continue }
+                else -> continue
+            }
+            val dstPort = ((data[i].toInt() and 0xFF) shl 8) or (data[i + 1].toInt() and 0xFF)
+            i += 2
+            if (dstPort != 53) continue
+            val header = data.copyOfRange(0, i)
+            val query = data.copyOfRange(i, data.size)
+            thread(isDaemon = true) { dnsOverSsh(udp, from, header, dstHost, query) }
+        }
+    }
+
+    private fun dnsOverSsh(udp: DatagramSocket, to: InetSocketAddress, header: ByteArray, host: String, query: ByteArray) {
+        try {
+            val ch = session!!.openChannel("direct-tcpip") as ChannelDirectTCPIP
+            ch.setHost(host)
+            ch.setPort(53)
+            val ins = DataInputStream(ch.inputStream)
+            val outs = ch.outputStream
+            ch.connect(8000)
+            outs.write(byteArrayOf((query.size shr 8).toByte(), (query.size and 0xFF).toByte()))
+            outs.write(query)
+            outs.flush()
+            val lenB = ByteArray(2)
+            ins.readFully(lenB)
+            val len = ((lenB[0].toInt() and 0xFF) shl 8) or (lenB[1].toInt() and 0xFF)
+            val resp = ByteArray(len)
+            ins.readFully(resp)
+            ch.disconnect()
+            val out = header + resp
+            udp.send(DatagramPacket(out, out.size, to))
+        } catch (e: Exception) {
+            AppLog.add("✖ DNS $host — ${e.message}")
         }
     }
 }
