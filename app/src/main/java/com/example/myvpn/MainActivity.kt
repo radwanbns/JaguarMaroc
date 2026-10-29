@@ -8,7 +8,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
@@ -32,7 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -78,6 +75,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AdsManager.init(this)
         if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         window.statusBarColor = 0xFF0A0F1F.toInt()
         window.navigationBarColor = 0xFF0A0F1F.toInt()
@@ -92,9 +90,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        AdsManager.refresh()
+    }
+
     private fun toggle() {
         if (vm.status == VpnStatus.CONNECTED) {
             vm.disconnect()
+            AdsManager.onUserDisconnected(this)
         } else {
             val intent = android.net.VpnService.prepare(this)
             if (intent != null) permissionLauncher.launch(intent) else vm.connect()
@@ -106,98 +110,36 @@ class MainActivity : ComponentActivity() {
 fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     var tab by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
-    // Show the Telegram dialog every time the app screen is entered.
-    var showTelegramDialog by remember { mutableStateOf(true) }
-    val context = androidx.compose.ui.platform.LocalContext.current
-
-    Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)) {
-                Text(
-                    buildAnnotatedString {
-                        withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append("ON") }
-                        withStyle(SpanStyle(color = Color.White)) { append(" Tunnel") }
-                    },
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 1.sp,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-                IconButton(
-                    onClick = { showSettings = true },
-                    modifier = Modifier.align(Alignment.CenterEnd)
-                ) {
-                    Icon(Icons.Default.Settings, "الإعدادات", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            TabRow(
-                selectedTabIndex = tab,
-                containerColor = Color.Transparent,
-                contentColor = MaterialTheme.colorScheme.primary
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)) {
+            Text(
+                buildAnnotatedString {
+                    withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append("ON") }
+                    withStyle(SpanStyle(color = Color.White)) { append(" Tunnel") }
+                },
+                fontSize = 28.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.sp,
+                modifier = Modifier.align(Alignment.Center)
+            )
+            IconButton(
+                onClick = { showSettings = true },
+                modifier = Modifier.align(Alignment.CenterEnd)
             ) {
-                Tab(tab == 0, { tab = 0 }, text = { Text("الرئيسية") })
-                Tab(tab == 1, { tab = 1 }, text = { Text("السجل") })
-            }
-            if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
-        }
-
-        // Telegram invitation is a compact dialog; the old floating side panel is removed.
-        if (vm.updateSuccess) {
-            Surface(
-                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 20.dp, vertical = 18.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = Color(0xFF16A34A),
-                shadowElevation = 8.dp
-            ) {
-                Text(
-                    "Update Success",
-                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
-                )
+                Icon(Icons.Default.Settings, "الإعدادات", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-
+        TabRow(
+            selectedTabIndex = tab,
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.primary
+        ) {
+            Tab(tab == 0, { tab = 0 }, text = { Text("الرئيسية") })
+            Tab(tab == 1, { tab = 1 }, text = { Text("السجل") })
+        }
+        if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
     }
     if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
-    if (showTelegramDialog) {
-        AlertDialog(
-            onDismissRequest = { showTelegramDialog = false },
-            title = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Image(
-                        painter = painterResource(id = com.example.myvpn.R.drawable.ic_launcher_foreground),
-                        contentDescription = "ON Tunnel logo",
-                        modifier = Modifier.size(76.dp)
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        PromoSecrets.title,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            },
-            text = { Text(PromoSecrets.description) },
-            confirmButton = {
-                Button(onClick = {
-                    showTelegramDialog = false
-                    runCatching {
-                        context.startActivity(android.content.Intent(
-                            android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse(PromoSecrets.telegramUrl)
-                        ))
-                    }
-                }) { Icon(Icons.Default.Send, contentDescription = null); Spacer(Modifier.width(6.dp)); Text(PromoSecrets.joinLabel) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTelegramDialog = false }) { Text(PromoSecrets.laterLabel) }
-            }
-        )
-    }
 }
 
 @Composable
@@ -290,7 +232,8 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
             IconButton(onClick = { showAdd = true }) { Icon(Icons.Default.Add, "إضافة") }
         }
 
-        LazyColumn(Modifier.fillMaxWidth()) {
+        vm.subMessage?.let { Text(it, fontSize = 12.sp) }
+        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
             itemsIndexed(vm.servers) { i, server ->
                 Card(
                     Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -321,6 +264,8 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
                 }
             }
         }
+        RewardAdButton(Modifier.padding(top = 8.dp))
+        AdBanner(Modifier.padding(top = 16.dp))
     }
 
     if (showAdd) AddServerDialog(onDismiss = { showAdd = false }, onSave = { vm.addServer(it); showAdd = false })
@@ -366,7 +311,8 @@ fun SettingsDialog(vm: VpnViewModel, onDismiss: () -> Unit) {
                     onClick = { vm.saveSubscription(subUrl, subAuto); vm.updateSubscription() },
                     enabled = !vm.subBusy
                 ) { Text("حفظ وتحديث الآن") }
-                    }
+                vm.subMessage?.let { Text(it, fontSize = 12.sp) }
+            }
         },
         confirmButton = {
             TextButton(onClick = {
