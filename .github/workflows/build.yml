@@ -115,5 +115,5 @@ jobs:
           exit $code
       - uses: actions/upload-artifact@v4
         with:
-          name: Redo-VPN-apk
+          name: ON-Tunnel-apk
           path: app/build/outputs/apk/debug/app-debug.apk
