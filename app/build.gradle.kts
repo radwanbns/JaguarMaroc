@@ -17,12 +17,7 @@ android {
     }
     buildTypes {
         release {
-            // R8 shrinks and obfuscates release bytecode. This does not encrypt the APK.
-            isMinifyEnabled = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            isMinifyEnabled = false
         }
     }
     compileOptions {
@@ -47,4 +42,8 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+
+    // إعلانات جوجل (AdMob) + نافذة الموافقة
+    implementation("com.google.android.gms:play-services-ads:23.6.0")
+    implementation("com.google.android.ump:user-messaging-platform:3.0.0")
 }
