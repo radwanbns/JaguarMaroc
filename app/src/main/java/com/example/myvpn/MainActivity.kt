@@ -21,15 +21,20 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -57,6 +62,9 @@ private val OnColors = darkColorScheme(
     outline = Color(0xFF2B3A63),
     error = Color(0xFFFF6B6B)
 )
+
+const val TELEGRAM_URL = "https://t.me/radouane_tech"
+const val YOUTUBE_URL = "https://youtube.com/@radouane_tech?si=JRuuxqLAcbQcHHNu"
 
 const val WS_TEMPLATE =
     "GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]"
@@ -103,6 +111,10 @@ class MainActivity : ComponentActivity() {
 fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     var tab by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    val uiPrefs = remember { ctx.getSharedPreferences("ui", 0) }
+    var showChannel by rememberSaveable { mutableStateOf(!uiPrefs.getBoolean("hideChannel", false)) }
+    val uriHandler = LocalUriHandler.current
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)) {
             Text(
@@ -130,9 +142,73 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
             Tab(tab == 0, { tab = 0 }, text = { Text("الرئيسية") })
             Tab(tab == 1, { tab = 1 }, text = { Text("السجل") })
         }
-        if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
+        Box(Modifier.weight(1f)) {
+            if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
+        }
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Button(
+                onClick = { uriHandler.openUri(TELEGRAM_URL) },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF229ED9), contentColor = Color.White
+                )
+            ) {
+                Icon(Icons.Default.Send, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Telegram", fontWeight = FontWeight.SemiBold)
+            }
+            Button(
+                onClick = { uriHandler.openUri(YOUTUBE_URL) },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFE62117), contentColor = Color.White
+                )
+            ) {
+                Icon(Icons.Default.PlayArrow, null, Modifier.size(22.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("YouTube", fontWeight = FontWeight.SemiBold)
+            }
+        }
     }
     if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
+    if (showChannel) ChannelDialog(
+        onOpen = { showChannel = false; uriHandler.openUri(TELEGRAM_URL) },
+        onLater = { showChannel = false },
+        onNever = {
+            uiPrefs.edit().putBoolean("hideChannel", true).apply()
+            showChannel = false
+        }
+    )
+}
+
+@Composable
+fun ChannelDialog(onOpen: () -> Unit, onLater: () -> Unit, onNever: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onLater,
+        title = { Text("تابع قناتنا على تلغرام", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text("انضم إلى قناة radouane_tech لتصلك آخر السيرفرات والتحديثات والشروحات.")
+                Spacer(Modifier.height(4.dp))
+                TextButton(onClick = onNever) { Text("لا تظهر مرة أخرى", fontSize = 12.sp) }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onOpen,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF229ED9), contentColor = Color.White
+                )
+            ) { Text("فتح القناة") }
+        },
+        dismissButton = { TextButton(onClick = onLater) { Text("لاحقاً") } }
+    )
 }
 
 @Composable
