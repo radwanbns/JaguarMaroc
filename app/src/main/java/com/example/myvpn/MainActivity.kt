@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -104,12 +106,9 @@ class MainActivity : ComponentActivity() {
 fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     var tab by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
-    var showTelegramDialog by remember { mutableStateOf(false) }
+    // Show the Telegram dialog every time the app screen is entered.
+    var showTelegramDialog by remember { mutableStateOf(true) }
     val context = androidx.compose.ui.platform.LocalContext.current
-    val activityPrefs = remember { context.getSharedPreferences("promo_dialog_prefs", android.content.Context.MODE_PRIVATE) }
-    LaunchedEffect(Unit) {
-        if (!activityPrefs.getBoolean("telegram_dialog_seen", false)) showTelegramDialog = true
-    }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -163,29 +162,39 @@ fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
     if (showTelegramDialog) {
         AlertDialog(
-            onDismissRequest = {
-                showTelegramDialog = false
-                activityPrefs.edit().putBoolean("telegram_dialog_seen", true).apply()
+            onDismissRequest = { showTelegramDialog = false },
+            title = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Image(
+                        painter = painterResource(id = com.example.myvpn.R.mipmap.ic_launcher),
+                        contentDescription = "ON Tunnel logo",
+                        modifier = Modifier.size(76.dp)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        PromoSecrets.title,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             },
-            title = { Text("RADOUANE TECH", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) },
-            text = { Text("انضم إلى قناة Telegram لمتابعة الأخبار والتحديثات.") },
+            text = { Text(PromoSecrets.description) },
             confirmButton = {
                 Button(onClick = {
-                    activityPrefs.edit().putBoolean("telegram_dialog_seen", true).apply()
                     showTelegramDialog = false
                     runCatching {
                         context.startActivity(android.content.Intent(
                             android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse("https://t.me/radouane_tech")
+                            android.net.Uri.parse(PromoSecrets.telegramUrl)
                         ))
                     }
-                }) { Icon(Icons.Default.Send, contentDescription = null); Spacer(Modifier.width(6.dp)); Text("انضم إلى تلغرام") }
+                }) { Icon(Icons.Default.Send, contentDescription = null); Spacer(Modifier.width(6.dp)); Text(PromoSecrets.joinLabel) }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    activityPrefs.edit().putBoolean("telegram_dialog_seen", true).apply()
-                    showTelegramDialog = false
-                }) { Text("لاحقاً") }
+                TextButton(onClick = { showTelegramDialog = false }) { Text(PromoSecrets.laterLabel) }
             }
         )
     }
