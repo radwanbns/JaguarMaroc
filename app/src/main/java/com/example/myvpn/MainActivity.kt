@@ -7,6 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,6 +16,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -28,12 +31,32 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wireguard.android.backend.GoBackend
+
+private val OnColors = darkColorScheme(
+    primary = Color(0xFF22D3EE),
+    onPrimary = Color(0xFF00212B),
+    secondary = Color(0xFF8B5CF6),
+    background = Color(0xFF0A0F1F),
+    onBackground = Color(0xFFE6EDF7),
+    surface = Color(0xFF0F1730),
+    onSurface = Color(0xFFE6EDF7),
+    surfaceVariant = Color(0xFF16203D),
+    onSurfaceVariant = Color(0xFF9FB0CC),
+    surfaceContainer = Color(0xFF101830),
+    surfaceContainerHigh = Color(0xFF141D38),
+    surfaceContainerHighest = Color(0xFF1A2547),
+    outline = Color(0xFF2B3A63),
+    error = Color(0xFFFF6B6B)
+)
 
 const val WS_TEMPLATE =
     "GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]"
@@ -53,9 +76,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        window.statusBarColor = 0xFF0A0F1F.toInt()
+        window.navigationBarColor = 0xFF0A0F1F.toInt()
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+            .isAppearanceLightStatusBars = false
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface(Modifier.fillMaxSize()) { VpnScreen(vm, onToggle = ::toggle) }
+            MaterialTheme(colorScheme = OnColors) {
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    VpnScreen(vm, onToggle = ::toggle)
+                }
             }
         }
     }
@@ -73,13 +102,37 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun VpnScreen(vm: VpnViewModel, onToggle: () -> Unit) {
     var tab by remember { mutableStateOf(0) }
+    var showSettings by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        TabRow(selectedTabIndex = tab) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)) {
+            Text(
+                buildAnnotatedString {
+                    withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append("ON") }
+                    withStyle(SpanStyle(color = Color.White)) { append(" Tunnel") }
+                },
+                fontSize = 28.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.sp,
+                modifier = Modifier.align(Alignment.Center)
+            )
+            IconButton(
+                onClick = { showSettings = true },
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                Icon(Icons.Default.Settings, "الإعدادات", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        TabRow(
+            selectedTabIndex = tab,
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.primary
+        ) {
             Tab(tab == 0, { tab = 0 }, text = { Text("الرئيسية") })
             Tab(tab == 1, { tab = 1 }, text = { Text("السجل") })
         }
         if (tab == 0) HomeTab(vm, onToggle) else LogScreen()
     }
+    if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
 }
 
 @Composable
@@ -110,12 +163,11 @@ fun LogScreen() {
 @Composable
 fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
     var showAdd by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
 
     val color = when (vm.status) {
-        VpnStatus.CONNECTED -> Color(0xFF2ECC71)
-        VpnStatus.CONNECTING -> Color(0xFFF1C40F)
-        VpnStatus.DISCONNECTED -> Color(0xFF7F8C8D)
+        VpnStatus.CONNECTED -> Color(0xFF22C55E)
+        VpnStatus.CONNECTING -> Color(0xFFFBBF24)
+        VpnStatus.DISCONNECTED -> Color(0xFF475569)
     }
     val label = when (vm.status) {
         VpnStatus.CONNECTED -> "متصل"
@@ -127,22 +179,26 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
         Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Redo VPN", fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            IconButton(onClick = { showSettings = true }) { Icon(Icons.Default.Settings, "الإعدادات") }
-        }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(12.dp))
 
-        Button(
-            onClick = onToggle,
-            enabled = vm.status != VpnStatus.CONNECTING,
-            shape = CircleShape,
-            colors = ButtonDefaults.buttonColors(containerColor = color),
-            modifier = Modifier.size(150.dp)
-        ) { Icon(Icons.Default.PowerSettingsNew, null, Modifier.size(64.dp), tint = Color.White) }
+        Box(
+            Modifier.size(176.dp).border(3.dp, color.copy(alpha = 0.35f), CircleShape).padding(10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Button(
+                onClick = onToggle,
+                enabled = vm.status != VpnStatus.CONNECTING,
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = color,
+                    disabledContainerColor = color
+                ),
+                modifier = Modifier.fillMaxSize()
+            ) { Icon(Icons.Default.PowerSettingsNew, null, Modifier.size(64.dp), tint = Color.White) }
+        }
 
         Spacer(Modifier.height(12.dp))
-        Text(label, fontSize = 20.sp, color = color)
+        Text(label, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = color)
 
         if (vm.activeSsh) {
             Spacer(Modifier.height(8.dp))
@@ -172,7 +228,12 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
         vm.subMessage?.let { Text(it, fontSize = 12.sp) }
         LazyColumn(Modifier.fillMaxWidth()) {
             itemsIndexed(vm.servers) { i, server ->
-                Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Card(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    border = if (vm.selected == i) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null
+                ) {
                     Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(
                             selected = vm.selected == i,
@@ -199,7 +260,6 @@ fun HomeTab(vm: VpnViewModel, onToggle: () -> Unit) {
     }
 
     if (showAdd) AddServerDialog(onDismiss = { showAdd = false }, onSave = { vm.addServer(it); showAdd = false })
-    if (showSettings) SettingsDialog(vm, onDismiss = { showSettings = false })
 }
 
 @Composable

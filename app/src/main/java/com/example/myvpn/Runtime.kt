@@ -142,7 +142,7 @@ class TunnelService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL)
-            .setContentTitle("Redo VPN")
+            .setContentTitle("ON Tunnel")
             .setContentText("متصل — $name")
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(open)

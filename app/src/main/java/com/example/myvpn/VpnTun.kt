@@ -31,7 +31,7 @@ class RedoVpnService : VpnService() {
     private fun establishTunnel() {
         try {
             val builder = Builder()
-                .setSession("Redo VPN")
+                .setSession("ON Tunnel")
                 .setMtu(MTU)
                 .addAddress("198.18.0.2", 30)
                 .addRoute("0.0.0.0", 0)
