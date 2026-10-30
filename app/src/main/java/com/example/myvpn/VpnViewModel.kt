@@ -66,8 +66,8 @@ class VpnViewModel(app: Application) : AndroidViewModel(app) {
         get() = localError ?: SshManager.error ?: V2rayManager.error
 
     // الإعدادات
-    var socksPort by mutableStateOf(prefs.getInt("socksPort", 1080))
-    var keepAlive by mutableStateOf(prefs.getInt("keepAlive", 15))
+    var socksPort by mutableStateOf(prefs.getInt("socksPort", ))
+    var keepAlive by mutableStateOf(prefs.getInt("keepAlive", ))
 
     val selectedIsWireGuard get() = servers.getOrNull(selected)?.type == "WG"
     val activeSsh get() = servers.getOrNull(selected)?.type == "SSH" && status == VpnStatus.CONNECTED
