@@ -169,13 +169,21 @@ object V2rayManager {
             .put("port", 10808)
             .put("protocol", "socks")
             .put("settings", JSONObject().put("auth", "noauth").put("udp", true)))
-        val outbounds = JSONArray().put(outbound).put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
+        val outbounds = JSONArray().put(outbound)
+            .put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
+            .put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
+        // حظر QUIC (UDP 443) ليرجع المتصفح لـ TCP — يصلح مواقع جوجل
+        val rules = JSONArray()
+        if (appCtx?.let { DnsConfig.blockQuic(it) } != false) {
+            rules.put(JSONObject().put("type", "field").put("inboundTag", JSONArray().put("socks-in"))
+                .put("network", "udp").put("port", "443").put("outboundTag", "block"))
+        }
+        rules.put(JSONObject().put("type", "field").put("inboundTag", JSONArray().put("socks-in")).put("outboundTag", "proxy"))
         return JSONObject()
             .put("log", JSONObject().put("loglevel", "warning"))
             .put("inbounds", inbounds)
             .put("outbounds", outbounds)
-            .put("routing", JSONObject().put("domainStrategy", "AsIs").put("rules", JSONArray()
-                .put(JSONObject().put("type", "field").put("inboundTag", JSONArray().put("socks-in")).put("outboundTag", "proxy"))))
+            .put("routing", JSONObject().put("domainStrategy", "AsIs").put("rules", rules))
             .toString()
     }
 

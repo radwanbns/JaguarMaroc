@@ -35,8 +35,8 @@ class RedoVpnService : VpnService() {
                 .setMtu(MTU)
                 .addAddress("198.18.0.2", 30)
                 .addRoute("0.0.0.0", 0)
-                .addDnsServer("8.8.8.8")
-                .addDnsServer("8.8.8.8")
+            // DNS من الإعدادات (الافتراضي: 1.1.1.1 + 8.8.8.8)
+            DnsConfig.servers(this).forEach { builder.addDnsServer(it) }
             try {
                 builder.addAddress("fc00::2", 126)
                 builder.addRoute("::", 0)
