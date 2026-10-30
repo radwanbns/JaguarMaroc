@@ -34,11 +34,11 @@ object DnsConfig {
     const val CUSTOM = "custom"
 
     val presets = listOf(
-        Preset(AUTO, "تلقائي (Cloudflare + Google)", "1.1.1.1", "8.8.8.8"),
+        Preset(AUTO, "Auto (Cloudflare + Google)", "1.1.1.1", "8.8.8.8"),
         Preset("google", "Google (8.8.8.8)", "8.8.8.8", "8.8.4.4"),
         Preset("cloudflare", "Cloudflare (1.1.1.1)", "1.1.1.1", "1.0.0.1"),
         Preset("quad9", "Quad9 (9.9.9.9)", "9.9.9.9", "149.112.112.112"),
-        Preset("adguard", "AdGuard — يحظر الإعلانات", "94.140.14.14", "94.140.15.15")
+        Preset("adguard", "AdGuard (blocks ads)", "94.140.14.14", "94.140.15.15")
     )
 
     private fun p(ctx: Context) = ctx.applicationContext.getSharedPreferences("dns", 0)
@@ -57,6 +57,12 @@ object DnsConfig {
     fun setBlockQuic(ctx: Context, on: Boolean) {
         p(ctx).edit().putBoolean("blockQuic", on).apply()
     }
+
+    fun reset(ctx: Context) {
+        p(ctx).edit().clear().apply()
+    }
+
+    fun summary(ctx: Context): String = servers(ctx).joinToString(" · ")
 
     fun isValidIp(s: String): Boolean {
         val t = s.trim()
@@ -102,10 +108,10 @@ fun DnsSettingsSection() {
 
     Column {
         Text("DNS", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        Text("يُطبّق عند الاتصال التالي", fontSize = 12.sp)
+        Text("Applied on the next connection", fontSize = 12.sp)
         Spacer(Modifier.height(4.dp))
 
-        (DnsConfig.presets.map { it.id to it.label } + (DnsConfig.CUSTOM to "مخصص")).forEach { (id, label) ->
+        (DnsConfig.presets.map { it.id to it.label } + (DnsConfig.CUSTOM to "Custom")).forEach { (id, label) ->
             Row(
                 Modifier.fillMaxWidth().clickable { select(id) },
                 verticalAlignment = Alignment.CenterVertically
@@ -118,17 +124,17 @@ fun DnsSettingsSection() {
         if (mode == DnsConfig.CUSTOM) {
             OutlinedTextField(
                 c1, { c1 = it.trim(); DnsConfig.save(ctx, mode, c1, c2) },
-                label = { Text("DNS الأول (مثلاً 8.8.8.8)") }, singleLine = true,
+                label = { Text("Primary DNS (e.g. 8.8.8.8)") }, singleLine = true,
                 isError = c1.isNotEmpty() && !DnsConfig.isValidIp(c1)
             )
             Spacer(Modifier.height(6.dp))
             OutlinedTextField(
                 c2, { c2 = it.trim(); DnsConfig.save(ctx, mode, c1, c2) },
-                label = { Text("DNS الثاني (اختياري)") }, singleLine = true,
+                label = { Text("Secondary DNS (optional)") }, singleLine = true,
                 isError = c2.isNotEmpty() && !DnsConfig.isValidIp(c2)
             )
             if ((c1.isNotEmpty() && !DnsConfig.isValidIp(c1)) || (c2.isNotEmpty() && !DnsConfig.isValidIp(c2))) {
-                Text("عنوان IP غير صالح — كيتجاهل ويتستعمل الافتراضي", fontSize = 12.sp, color = Color(0xFFEF4444))
+                Text("Invalid IP — default DNS will be used", fontSize = 12.sp, color = Color(0xFFEF4444))
             }
         }
 
@@ -136,11 +142,11 @@ fun DnsSettingsSection() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Switch(quic, { quic = it; DnsConfig.setBlockQuic(ctx, it) })
             Spacer(Modifier.width(8.dp))
-            Text("حظر QUIC (يصلح مواقع جوجل فالمتصفح)", fontSize = 13.sp)
+            Text("Block QUIC (fixes Google in browsers)", fontSize = 13.sp)
         }
         Text(
-            "المتصفح كيستعمل QUIC (UDP 443) مع جوجل، وإلا ما مرّش عبر السيرفر كيتعطل الموقع. " +
-                "الحظر كيخليه يرجع لـ TCP وكيخدم عادي.",
+            "Browsers use QUIC (UDP 443) with Google. If it cannot pass through the server the site " +
+                "will not load. Blocking it makes the browser fall back to TCP.",
             fontSize = 12.sp
         )
     }

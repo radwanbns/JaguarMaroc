@@ -155,7 +155,13 @@ class TunnelService : Service() {
         } else {
             startForeground(1, notification)
         }
+        ShareProxy.sync(this) // تشغيل مشاركة الإنترنت إن كانت مفعّلة
         return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        ShareProxy.stop()
+        super.onDestroy()
     }
 
     companion object { const val CHANNEL = "tunnel" }

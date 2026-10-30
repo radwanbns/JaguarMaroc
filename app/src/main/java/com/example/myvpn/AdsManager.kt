@@ -173,7 +173,7 @@ object AdsManager {
         } else {
             if (was && gateOn) {
                 Toast.makeText(
-                    app, "انتهى الوقت — تم قطع الاتصال. شاهد إعلاناً لإضافة ساعة", Toast.LENGTH_LONG
+                    app, "Time is over — VPN disconnected. Watch an ad to add time.", Toast.LENGTH_LONG
                 ).show()
                 onTimeExpired?.invoke()
             }
@@ -188,8 +188,8 @@ object AdsManager {
         ensureLoaded()
         Toast.makeText(
             ctx,
-            if (!ready) "جاري تحميل الإعلانات، حاول بعد لحظات"
-            else "انتهى الوقت — شاهد إعلاناً للحصول على ساعة إضافية",
+            if (!ready) "Ads are loading, try again in a moment"
+            else "No time left — watch an ad to get more time",
             Toast.LENGTH_LONG
         ).show()
         return false
@@ -242,7 +242,7 @@ object AdsManager {
     fun showRewarded(activity: Activity) {
         val ad = rewarded
         if (ad == null) {
-            Toast.makeText(activity, "الإعلان غير جاهز، حاول بعد لحظات", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, "Ad is not ready yet, try again in a moment", Toast.LENGTH_SHORT).show()
             ensureLoaded()
             return
         }
@@ -294,14 +294,14 @@ fun AdBanner(modifier: Modifier = Modifier) {
     )
 }
 
-private fun formatTime(ms: Long): String {
-    val total = ms / 1000
-    return String.format(Locale.US, "%02d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
+private fun formatCredit(ms: Long): String {
+    val t = ms / 1000
+    return "${t / 86400}d:${(t % 86400) / 3600}h:${(t % 3600) / 60}m:${t % 60}s"
 }
 
-/** بطاقة الوقت المتبقي (عدّاد تنازلي) + زر "+ ساعة" بمشاهدة إعلان. */
+/** صف "Time Credit": عدّاد تنازلي + زر إعلان المكافأة (+ وقت). */
 @Composable
-fun RewardAdButton(modifier: Modifier = Modifier) {
+fun TimeCreditRow(modifier: Modifier = Modifier) {
     if (!AppConfig.ADS_ENABLED) return
     val ctx = LocalContext.current
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -311,79 +311,45 @@ fun RewardAdButton(modifier: Modifier = Modifier) {
             delay(1000)
         }
     }
-    val gate = AdsManager.gateOn
     val left = (AdsManager.adFreeUntil - now).coerceAtLeast(0L)
-    val active = left > 0
-    val accent = when {
-        !active -> Color(0xFFEF4444)
-        left < 10 * 60_000L -> Color(0xFFF59E0B)
-        else -> Color(0xFF22D3EE)
-    }
+    val teal = Color(0xFF00897B)
     val minutes = AdsTimeConfig.REWARD_MINUTES
-    val addLabel = if (minutes % 60 == 0) "+ ${minutes / 60} ساعة" else "+ $minutes د"
+    val addLabel = if (minutes % 60 == 0) "+${minutes / 60} Hour" else "+$minutes Min"
 
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = Color(0xFF0F1A33),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.55f))
-    ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(40.dp).background(accent.copy(alpha = 0.15f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Timer, null, tint = accent, modifier = Modifier.size(22.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (!gate) "بدون إعلانات" else if (active) "الوقت المتبقي" else "انتهى الوقت",
-                        fontSize = 12.sp, color = Color(0xFF9FB0CC)
-                    )
-                    Text(
-                        formatTime(left),
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = if (active) Color.White else accent
-                    )
-                }
-                Button(
-                    onClick = { ctx.findActivity()?.let { AdsManager.showRewarded(it) } },
-                    enabled = AdsManager.rewardedReady,
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF22D3EE),
-                        contentColor = Color(0xFF0A0F1F),
-                        disabledContainerColor = Color(0xFF22304F),
-                        disabledContentColor = Color(0xFF7C8BA8)
-                    )
-                ) {
-                    Icon(Icons.Default.CardGiftcard, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        if (AdsManager.rewardedReady) addLabel else "تحميل…",
-                        fontWeight = FontWeight.Bold, fontSize = 14.sp
-                    )
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            LinearProgressIndicator(
-                progress = { (left.toFloat() / (minutes * 60_000f)).coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                color = accent,
-                trackColor = Color(0xFF1B2A4A)
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.Timer, null, tint = Color(0xFF1E88E5), modifier = Modifier.size(46.dp))
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Time Credit", fontSize = 15.sp, color = Color(0xFF444B52))
+            Text(
+                formatCredit(left),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (left == 0L && AdsManager.gateOn) Color(0xFFD32F2F) else Color(0xFF1F2933)
             )
-            if (gate && !active) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "شاهد إعلاناً للحصول على ساعة وتشغيل VPN",
-                    fontSize = 12.sp, color = Color(0xFFFCA5A5)
-                )
+        }
+        Button(
+            onClick = { ctx.findActivity()?.let { AdsManager.showRewarded(it) } },
+            enabled = AdsManager.rewardedReady,
+            shape = RoundedCornerShape(50),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = teal,
+                contentColor = Color.White,
+                disabledContainerColor = teal,
+                disabledContentColor = Color.White
+            )
+        ) {
+            Box(
+                Modifier.background(Color.White, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp)
+            ) {
+                Text("Ad", color = teal, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
             }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                if (AdsManager.rewardedReady) addLabel else "loading",
+                fontSize = 20.sp, letterSpacing = 1.sp
+            )
         }
     }
 }
